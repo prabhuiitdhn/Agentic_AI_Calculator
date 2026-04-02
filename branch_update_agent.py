@@ -33,6 +33,7 @@ class BranchUpdateAgent:
         print("\nChoose mode:")
         print("  1. Main branch")
         print("  2. Any other branch")
+        print("  3. Pull latest code")
         mode = input("mode> ").strip().lower()
 
         if mode in {"1", "main"}:
@@ -43,7 +44,11 @@ class BranchUpdateAgent:
             self._run_publish_mode_other(repo_path=repo_path, existing_branches=branches)
             return
 
-        print("Invalid mode. Choose 1 or 2.")
+        if mode in {"3", "pull", "latest"}:
+            self._run_pull_latest_mode(repo_path=repo_path, existing_branches=branches)
+            return
+
+        print("Invalid mode. Choose 1, 2 or 3.")
 
     def _run_publish_mode_main(self, repo_path: Path, existing_branches: list[str]) -> None:
         source_path, commit_message, should_push = self._collect_publish_inputs()
@@ -95,6 +100,15 @@ class BranchUpdateAgent:
                 print(f"No content changes on branch: {branch_name}")
         except GitCommandError as exc:
             print(f"Failed on branch {branch_name}: {exc}")
+
+    def _run_pull_latest_mode(self, repo_path: Path, existing_branches: list[str]) -> None:
+        default_branch = self._suggest_base_branch(existing_branches) or "main"
+        branch_name = input(f"Branch to pull [{default_branch}]: ").strip() or default_branch
+        try:
+            self._pull_latest(repo_path=repo_path, branch_name=branch_name)
+            print(f"Pulled latest code for branch: {branch_name}")
+        except GitCommandError as exc:
+            print(f"Failed to pull branch {branch_name}: {exc}")
 
     def _collect_publish_inputs(self) -> tuple[Path | None, str, bool]:
         source_default = Path(__file__).resolve().parent
@@ -165,7 +179,23 @@ class BranchUpdateAgent:
         self._git(["commit", "-m", commit_message], cwd=repo_path)
         if should_push:
             self._git(["push", "-u", "origin", new_branch], cwd=repo_path)
+            try:
+                self._pull_latest(repo_path=repo_path, branch_name=new_branch)
+                print(f"Pulled latest after push for branch: {new_branch}")
+            except GitCommandError:
+                pass
         return True
+
+    def _pull_latest(self, repo_path: Path, branch_name: str) -> None:
+        if self._local_branch_exists(repo_path, branch_name):
+            self._git(["checkout", branch_name], cwd=repo_path)
+        elif self._remote_branch_exists(repo_path, branch_name):
+            self._git(["checkout", "-b", branch_name, f"origin/{branch_name}"], cwd=repo_path)
+        else:
+            raise GitCommandError(f"Branch not found locally or on origin: {branch_name}")
+
+        self._git(["fetch", "origin", branch_name], cwd=repo_path)
+        self._git(["pull", "origin", branch_name], cwd=repo_path)
 
     def _sync_source_to_repo(self, source_path: Path, repo_path: Path) -> None:
         exclude_dirs = {

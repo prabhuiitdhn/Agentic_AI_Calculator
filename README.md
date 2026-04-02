@@ -73,6 +73,7 @@ Flow:
 2. Choose mode:
   - `1. Main branch`
   - `2. Any other branch`
+  - `3. Pull latest code`
 
 Main branch mode:
 
@@ -86,10 +87,16 @@ Any other branch mode:
 3. If branch does not exist, create it from base branch and upload code.
 4. Commit and optionally push.
 
+Pull latest code mode:
+
+1. Enter branch name (default uses `main` or detected base branch).
+2. Agent checks out the branch and pulls latest from origin.
+
 Notes:
 
 - It clones the repository into `./repos` (or fetches if already present).
 - It creates/checks out the target branch, syncs source files to the repo tree, commits, and optionally pushes.
+- After push, the agent can also pull the latest code so local repo is synced with remote.
 - Git auth must already work on your machine for clone/pull/push.
 
 ## Example Prompts
