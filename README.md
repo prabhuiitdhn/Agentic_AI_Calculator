@@ -2,16 +2,14 @@
 
 This project is a learning-focused agentic calculator built from scratch.
 
-The app supports two routing modes:
-- Claude tool calling mode (primary): each operation is exposed as a tool, and the model chooses the tool and arguments from the prompt.
-- Regex fallback mode: local parser routes prompts to tools when LLM is unavailable.
+The app runs in local LLM routing mode:
+- Local LLM tool calling mode: each operation is exposed as a tool, and a local model chooses tool and arguments from the prompt.
 
 ## Features
 
 - Tool-based architecture
 - Prompt-to-tool routing
-- Claude tool calling support (Anthropic API)
-- Offline/local fallback routing
+- Local LLM tool calling support (Ollama)
 - Interactive CLI loop
 - GitHub helper script for branch push/pull workflows
 
@@ -26,10 +24,9 @@ The app supports two routing modes:
 
 ## Project Structure
 
-- main.py: CLI entry point and mode fallback logic
+- main.py: CLI entry point for local model routing
 - src/calculator_agent/tools.py: tool implementations and registry
-- src/calculator_agent/agent.py: local regex router
-- src/calculator_agent/llm_agent.py: Claude tool-calling router
+- src/calculator_agent/local_llm_agent.py: local tool-calling router
 - branch_update_agent.py: GitHub push/pull helper
 
 ## Setup
@@ -40,10 +37,10 @@ The app supports two routing modes:
 pip install -r requirements.txt
 ```
 
-2. Set your API key (optional but recommended for tool-calling mode):
+2. Prepare local model:
 
 ```bash
-set ANTHROPIC_API_KEY=your_key_here
+ollama pull qwen2.5:3b
 ```
 
 3. Run:
@@ -52,7 +49,7 @@ set ANTHROPIC_API_KEY=your_key_here
 python main.py
 ```
 
-If API key or Anthropic package is unavailable, the app automatically uses regex fallback.
+If local model service is unavailable, the app shows setup instructions and exits.
 
 ## Commands
 
