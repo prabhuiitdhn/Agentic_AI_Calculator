@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
@@ -16,35 +14,41 @@ class BranchUpdateAgent:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir.resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.repo_path: Path | None = None
 
     def run(self) -> None:
-        print("\nGitHub Branch Update Agent\n")
+        print("\nGitHub Helper Agent\n")
         repo_url = input("GitHub repo URL (https://github.com/user/repo.git): ").strip()
         if not repo_url:
             print("Repo URL is required.")
             return
 
-        repo_name = self._repo_name_from_url(repo_url)
-        repo_path = self.base_dir / repo_name
-
-        self._clone_or_fetch(repo_url, repo_path)
-        branches = self._get_remote_branches(repo_path)
+        self.repo_path = self._resolve_working_repo(repo_url)
+        self._ensure_origin(repo_url, self.repo_path)
+        self._safe_git(["fetch", "--all", "--prune"], self.repo_path)
 
         print("\nChoose mode:")
+<<<<<<< Updated upstream
         print("  1. Main branch")
         print("  2. Any other branch")
         print("  3. Pull latest code")
+=======
+        print("  1. Push current code to main")
+        print("  2. Push current code to another branch")
+        print("  3. Pull latest code to local repo")
+>>>>>>> Stashed changes
         mode = input("mode> ").strip().lower()
 
         if mode in {"1", "main"}:
-            self._run_publish_mode_main(repo_path=repo_path, existing_branches=branches)
+            self._push_to_main(self.repo_path)
             return
 
         if mode in {"2", "other", "branch"}:
-            self._run_publish_mode_other(repo_path=repo_path, existing_branches=branches)
+            self._push_to_named_branch(self.repo_path)
             return
 
         if mode in {"3", "pull", "latest"}:
+<<<<<<< Updated upstream
             self._run_pull_latest_mode(repo_path=repo_path, existing_branches=branches)
             return
 
@@ -53,38 +57,109 @@ class BranchUpdateAgent:
     def _run_publish_mode_main(self, repo_path: Path, existing_branches: list[str]) -> None:
         source_path, commit_message, should_push = self._collect_publish_inputs()
         if source_path is None:
+=======
+            self._pull_latest_to_local(self.repo_path)
+>>>>>>> Stashed changes
             return
 
-        print("\n--- Publishing source to branch: main ---")
-        try:
-            base_branch = self._suggest_base_branch(existing_branches)
-            changed = self._publish_source_to_branch(
-                repo_path=repo_path,
-                source_path=source_path,
-                new_branch="main",
-                base_branch=base_branch,
-                commit_message=commit_message,
-                should_push=should_push,
-            )
-            if changed:
-                print("Published updates on branch: main")
-            else:
-                print("No content changes on branch: main")
-        except GitCommandError as exc:
-            print(f"Failed on branch main: {exc}")
+        print("Invalid mode. Choose 1, 2 or 3.")
 
-    def _run_publish_mode_other(self, repo_path: Path, existing_branches: list[str]) -> None:
+    def _push_to_main(self, repo_path: Path) -> None:
+        commit_message = input("Commit message [chore: update main]: ").strip() or "chore: update main"
+        self._checkout_branch(repo_path, "main", base_branch="main")
+        self._stash_and_pull(repo_path, "main")
+        changed = self._commit_all(repo_path, commit_message)
+        if changed:
+            self._safe_git(["push", "-u", "origin", "main"], repo_path)
+            print("Pushed latest code to main.")
+        else:
+            print("No local changes to commit on main.")
+        self._stash_and_pull(repo_path, "main")
+        print("Local repo synced with latest main.")
+
+    def _push_to_named_branch(self, repo_path: Path) -> None:
         branch_name = input("Branch name: ").strip()
         if not branch_name:
             print("Branch name is required.")
             return
 
-        source_path, commit_message, should_push = self._collect_publish_inputs()
-        if source_path is None:
+        commit_message = (
+            input("Commit message [feat: advanced update]: ").strip()
+            or "feat: advanced update"
+        )
+        self._checkout_branch(repo_path, branch_name, base_branch="main")
+        self._stash_and_pull(repo_path, branch_name)
+        changed = self._commit_all(repo_path, commit_message)
+        if changed:
+            self._safe_git(["push", "-u", "origin", branch_name], repo_path)
+            print(f"Pushed latest code to branch: {branch_name}")
+        else:
+            print(f"No local changes to commit on branch: {branch_name}")
+        self._stash_and_pull(repo_path, branch_name)
+        print(f"Local repo synced with latest {branch_name}.")
+
+    def _pull_latest_to_local(self, repo_path: Path) -> None:
+        default_branch = self._current_branch(repo_path) or "main"
+        branch_name = input(f"Branch to sync [{default_branch}]: ").strip() or default_branch
+        self._checkout_branch(repo_path, branch_name, base_branch="main")
+        self._stash_and_pull(repo_path, branch_name)
+        print(f"Local repo synced with latest {branch_name}.")
+
+    def _resolve_working_repo(self, repo_url: str) -> Path:
+        default_repo = Path(__file__).resolve().parent
+        repo_input = input(f"Local development repo path [{default_repo}]: ").strip()
+        candidate = Path(repo_input).expanduser().resolve() if repo_input else default_repo
+
+        if (candidate / ".git").exists():
+            print(f"Using local repo: {candidate}")
+            return candidate
+
+        repo_name = self._repo_name_from_url(repo_url)
+        clone_path = self.base_dir / repo_name
+        if (clone_path / ".git").exists():
+            print(f"Using cached clone: {clone_path}")
+            return clone_path
+
+        print(f"Local path is not a git repo. Cloning to {clone_path} ...")
+        self._safe_git(["clone", repo_url, str(clone_path)], self.base_dir)
+        return clone_path
+
+    def _ensure_origin(self, repo_url: str, repo_path: Path) -> None:
+        remote_output = self._safe_git(["remote"], repo_path)
+        remotes = {line.strip() for line in remote_output.splitlines() if line.strip()}
+        if "origin" not in remotes:
+            self._safe_git(["remote", "add", "origin", repo_url], repo_path)
             return
 
-        print(f"\n--- Publishing source to branch: {branch_name} ---")
+        self._safe_git(["remote", "set-url", "origin", repo_url], repo_path)
+
+    def _checkout_branch(self, repo_path: Path, branch_name: str, base_branch: str = "main") -> None:
+        if self._local_branch_exists(repo_path, branch_name):
+            self._safe_git(["checkout", branch_name], repo_path)
+            return
+
+        if self._remote_branch_exists(repo_path, branch_name):
+            self._safe_git(["checkout", "-b", branch_name, f"origin/{branch_name}"], repo_path)
+            return
+
+        if self._local_branch_exists(repo_path, base_branch):
+            self._safe_git(["checkout", base_branch], repo_path)
+            self._safe_git(["checkout", "-b", branch_name], repo_path)
+            return
+
+        if self._remote_branch_exists(repo_path, base_branch):
+            self._safe_git(["checkout", "-b", base_branch, f"origin/{base_branch}"], repo_path)
+            self._safe_git(["checkout", "-b", branch_name], repo_path)
+            return
+
+        # Repo may be empty or not have main/master yet.
+        self._safe_git(["checkout", "--orphan", branch_name], repo_path)
+
+    def _stash_and_pull(self, repo_path: Path, branch_name: str) -> None:
+        stash_output = self._safe_git(["stash", "push", "-u", "-m", "agent-auto-stash"], repo_path)
+        stashed = "No local changes" not in stash_output
         try:
+<<<<<<< Updated upstream
             base_branch = self._suggest_base_branch(existing_branches)
             changed = self._publish_source_to_branch(
                 repo_path=repo_path,
@@ -156,25 +231,22 @@ class BranchUpdateAgent:
                     self._git(["checkout", base_branch], cwd=repo_path)
                 else:
                     self._git(["checkout", "-b", base_branch, f"origin/{base_branch}"], cwd=repo_path)
+=======
+            self._safe_git(["pull", "origin", branch_name], repo_path)
+        finally:
+            if stashed:
+>>>>>>> Stashed changes
                 try:
-                    self._git(["pull", "origin", base_branch], cwd=repo_path)
-                except GitCommandError:
-                    pass
-                self._git(["checkout", "-b", new_branch], cwd=repo_path)
-            else:
-                self._git(["checkout", "--orphan", new_branch], cwd=repo_path)
+                    self._safe_git(["stash", "pop"], repo_path)
+                except GitCommandError as exc:
+                    print(f"Warning: stash pop had conflicts — resolve manually: {exc}")
 
-        self._sync_source_to_repo(source_path=source_path, repo_path=repo_path)
-        self._git(["add", "-A"], cwd=repo_path)
-
-        status = self._git(["status", "--porcelain"], cwd=repo_path)
+    def _commit_all(self, repo_path: Path, message: str) -> bool:
+        self._safe_git(["add", "-A"], repo_path)
+        status = self._safe_git(["status", "--porcelain"], repo_path)
         if not status.strip():
-            if should_push:
-                try:
-                    self._git(["push", "-u", "origin", new_branch], cwd=repo_path)
-                except GitCommandError:
-                    pass
             return False
+<<<<<<< Updated upstream
 
         self._git(["commit", "-m", commit_message], cwd=repo_path)
         if should_push:
@@ -243,86 +315,37 @@ class BranchUpdateAgent:
         return self._local_branch_exists(repo_path, branch_name) or self._remote_branch_exists(
             repo_path, branch_name
         )
+=======
+        self._safe_git(["commit", "-m", message], repo_path)
+        return True
+
+    def _current_branch(self, repo_path: Path) -> str:
+        try:
+            branch = self._safe_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_path).strip()
+            if branch and branch != "HEAD":
+                return branch
+        except GitCommandError:
+            pass
+        return ""
+>>>>>>> Stashed changes
 
     def _local_branch_exists(self, repo_path: Path, branch_name: str) -> bool:
         try:
-            self._git(["show-ref", "--verify", f"refs/heads/{branch_name}"], cwd=repo_path)
+            self._safe_git(["show-ref", "--verify", f"refs/heads/{branch_name}"], repo_path)
             return True
         except GitCommandError:
             return False
 
     def _remote_branch_exists(self, repo_path: Path, branch_name: str) -> bool:
         try:
-            self._git(["show-ref", "--verify", f"refs/remotes/origin/{branch_name}"], cwd=repo_path)
+            self._safe_git(["show-ref", "--verify", f"refs/remotes/origin/{branch_name}"], repo_path)
             return True
         except GitCommandError:
             return False
 
-    def _clone_or_fetch(self, repo_url: str, repo_path: Path) -> None:
-        if repo_path.exists():
-            print(f"Using existing repo at {repo_path}")
-            if not (repo_path / ".git").exists():
-                raise GitCommandError(
-                    f"Path exists but is not a git repo: {repo_path}. Remove it or use a different repo URL."
-                )
-            self._git(["fetch", "--all", "--prune"], cwd=repo_path)
-            return
-
-        print(f"Cloning into {repo_path} ...")
-        self._git(["clone", repo_url, str(repo_path)], cwd=self.base_dir)
-
-    def _get_remote_branches(self, repo_path: Path) -> list[str]:
-        remote_output = self._git(["branch", "-r"], cwd=repo_path)
-        remote_branches: list[str] = []
-        for line in remote_output.splitlines():
-            item = line.strip()
-            if not item or "->" in item:
-                continue
-            if item.startswith("origin/"):
-                remote_branches.append(item.replace("origin/", "", 1))
-
-        unique_remote = sorted(set(remote_branches))
-        if unique_remote:
-            print("Available branches:")
-            for idx, branch in enumerate(unique_remote, start=1):
-                print(f"  {idx}. {branch}")
-            return unique_remote
-
-        # Fallback: some repos or permissions expose local refs but not remote listing.
-        local_output = self._git(["branch"], cwd=repo_path)
-        local_branches: list[str] = []
-        for line in local_output.splitlines():
-            item = line.replace("*", "", 1).strip()
-            if item:
-                local_branches.append(item)
-
-        unique_local = sorted(set(local_branches))
-        if unique_local:
-            print("Available branches (local fallback):")
-            for idx, branch in enumerate(unique_local, start=1):
-                print(f"  {idx}. {branch}")
-            return unique_local
-
-        try:
-            current = self._git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=repo_path).strip()
-            if current and current != "HEAD":
-                print("Available branches (current fallback):")
-                print(f"  1. {current}")
-                return [current]
-        except GitCommandError:
-            # Repos with no commits/default branch can fail rev-parse HEAD.
-            pass
-
-        print(
-            "No branches detected from remote/local/current refs. "
-            "This usually means the repo has no commits yet or your fetch did not include refs."
-        )
-
-        return []
-
-    def _git(self, args: list[str], cwd: Path) -> str:
+    def _safe_git(self, args: list[str], cwd: Path) -> str:
         if not cwd.exists() or not cwd.is_dir():
-            raise GitCommandError(f"Invalid working directory for git command: {cwd}")
+            raise GitCommandError(f"Invalid working directory: {cwd}")
 
         cmd = ["git", *args]
         try:
@@ -336,9 +359,7 @@ class BranchUpdateAgent:
                 check=False,
             )
         except OSError as exc:
-            raise GitCommandError(
-                f"Failed to run git in '{cwd}': {exc}"
-            ) from exc
+            raise GitCommandError(f"Failed to run git in {cwd}: {exc}") from exc
 
         if result.returncode != 0:
             raise GitCommandError(result.stderr.strip() or result.stdout.strip() or str(cmd))
@@ -364,3 +385,4 @@ if __name__ == "__main__":
         agent.run()
     except GitCommandError as exc:
         print(f"Error: {exc}")
+

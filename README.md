@@ -59,7 +59,7 @@ python main.py
 
 ## GitHub Branch Update Agent
 
-You can also run a separate agent that asks for a GitHub repository and uploads your full project code branch-wise.
+You can also run a simplified GitHub helper agent for day-to-day development sync.
 
 Run:
 
@@ -70,22 +70,37 @@ python branch_update_agent.py
 Flow:
 
 1. Enter the GitHub repo URL.
+<<<<<<< Updated upstream
 2. Choose mode:
   - `1. Main branch`
   - `2. Any other branch`
   - `3. Pull latest code`
+=======
+2. Enter your local development repo path (default is current project path).
+3. Choose mode:
+  - `1. Push current code to main`
+  - `2. Push current code to another branch`
+  - `3. Pull latest code to local repo`
+>>>>>>> Stashed changes
 
 Main branch mode:
 
-1. Upload current source to `main`.
-2. Commit and optionally push.
+1. Switches to `main` (creates it if needed).
+2. Pulls latest from origin.
+3. Commits local changes and pushes to `main`.
+4. Pulls again to keep local up to date.
 
 Any other branch mode:
 
 1. Enter branch name.
-2. If branch exists, update it.
-3. If branch does not exist, create it from base branch and upload code.
-4. Commit and optionally push.
+2. If branch exists, it checks out and pulls latest.
+3. If branch does not exist, it creates branch from `main` (or orphan fallback).
+4. Commits local changes, pushes branch, then pulls latest.
+
+Pull latest code mode:
+
+1. Enter branch name (default is current branch).
+2. Agent checks out the branch and pulls latest from origin.
 
 Pull latest code mode:
 
@@ -94,9 +109,14 @@ Pull latest code mode:
 
 Notes:
 
+<<<<<<< Updated upstream
 - It clones the repository into `./repos` (or fetches if already present).
 - It creates/checks out the target branch, syncs source files to the repo tree, commits, and optionally pushes.
 - After push, the agent can also pull the latest code so local repo is synced with remote.
+=======
+- If the provided local path is not a git repo, the agent uses/creates a cached clone in `./repos`.
+- The agent updates `origin` URL to the repository you provide.
+>>>>>>> Stashed changes
 - Git auth must already work on your machine for clone/pull/push.
 
 ## Example Prompts
