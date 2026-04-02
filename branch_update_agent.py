@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
@@ -27,47 +29,204 @@ class BranchUpdateAgent:
 
         self._clone_or_fetch(repo_url, repo_path)
         branches = self._get_remote_branches(repo_path)
-        if not branches:
-            print("No remote branches found.")
+
+        print("\nChoose mode:")
+        print("  1. Main branch")
+        print("  2. Any other branch")
+        mode = input("mode> ").strip().lower()
+
+        if mode in {"1", "main"}:
+            self._run_publish_mode_main(repo_path=repo_path, existing_branches=branches)
             return
 
-        selected = self._choose_branches(branches)
-        if not selected:
-            print("No branches selected.")
+        if mode in {"2", "other", "branch"}:
+            self._run_publish_mode_other(repo_path=repo_path, existing_branches=branches)
             return
 
-        file_path = input("File path to update (relative to repo): ").strip()
-        if not file_path:
-            print("File path is required.")
+        print("Invalid mode. Choose 1 or 2.")
+
+    def _run_publish_mode_main(self, repo_path: Path, existing_branches: list[str]) -> None:
+        source_path, commit_message, should_push = self._collect_publish_inputs()
+        if source_path is None:
             return
 
-        find_text = input("Find text: ")
-        if find_text == "":
-            print("Find text cannot be empty.")
+        print("\n--- Publishing source to branch: main ---")
+        try:
+            base_branch = self._suggest_base_branch(existing_branches)
+            changed = self._publish_source_to_branch(
+                repo_path=repo_path,
+                source_path=source_path,
+                new_branch="main",
+                base_branch=base_branch,
+                commit_message=commit_message,
+                should_push=should_push,
+            )
+            if changed:
+                print("Published updates on branch: main")
+            else:
+                print("No content changes on branch: main")
+        except GitCommandError as exc:
+            print(f"Failed on branch main: {exc}")
+
+    def _run_publish_mode_other(self, repo_path: Path, existing_branches: list[str]) -> None:
+        branch_name = input("Branch name: ").strip()
+        if not branch_name:
+            print("Branch name is required.")
             return
 
-        replace_text = input("Replace with: ")
-        commit_message = input("Commit message: ").strip() or "chore: branch-wise automated update"
-        should_push = input("Push changes to origin? (y/n): ").strip().lower() == "y"
+        source_path, commit_message, should_push = self._collect_publish_inputs()
+        if source_path is None:
+            return
 
-        for branch in selected:
-            print(f"\n--- Processing branch: {branch} ---")
+        print(f"\n--- Publishing source to branch: {branch_name} ---")
+        try:
+            base_branch = self._suggest_base_branch(existing_branches)
+            changed = self._publish_source_to_branch(
+                repo_path=repo_path,
+                source_path=source_path,
+                new_branch=branch_name,
+                base_branch=base_branch,
+                commit_message=commit_message,
+                should_push=should_push,
+            )
+            if changed:
+                print(f"Published updates on branch: {branch_name}")
+            else:
+                print(f"No content changes on branch: {branch_name}")
+        except GitCommandError as exc:
+            print(f"Failed on branch {branch_name}: {exc}")
+
+    def _collect_publish_inputs(self) -> tuple[Path | None, str, bool]:
+        source_default = Path(__file__).resolve().parent
+        source_raw = input(
+            f"Source project path to upload [{source_default}]: "
+        ).strip()
+        source_path = Path(source_raw).expanduser().resolve() if source_raw else source_default
+        if not source_path.exists() or not source_path.is_dir():
+            print(f"Invalid source path: {source_path}")
+            return None, "", False
+
+        commit_message = input("Commit message: ").strip() or "feat: project snapshot update"
+        should_push = input("Push branches to origin? (y/n): ").strip().lower() == "y"
+        return source_path, commit_message, should_push
+
+    def _suggest_base_branch(self, existing_branches: list[str]) -> str:
+        if "main" in existing_branches:
+            return "main"
+        if "master" in existing_branches:
+            return "master"
+        if existing_branches:
+            return existing_branches[0]
+        return ""
+
+    def _publish_source_to_branch(
+        self,
+        repo_path: Path,
+        source_path: Path,
+        new_branch: str,
+        base_branch: str,
+        commit_message: str,
+        should_push: bool,
+    ) -> bool:
+        if self._local_branch_exists(repo_path, new_branch):
+            self._git(["checkout", new_branch], cwd=repo_path)
             try:
-                changed = self._update_branch(
-                    repo_path=repo_path,
-                    branch=branch,
-                    rel_file_path=file_path,
-                    find_text=find_text,
-                    replace_text=replace_text,
-                    commit_message=commit_message,
-                    should_push=should_push,
-                )
-                if changed:
-                    print(f"Updated branch: {branch}")
+                self._git(["pull", "origin", new_branch], cwd=repo_path)
+            except GitCommandError:
+                pass
+        elif self._remote_branch_exists(repo_path, new_branch):
+            self._git(["checkout", "-b", new_branch, f"origin/{new_branch}"], cwd=repo_path)
+        else:
+            if base_branch and self._branch_exists(repo_path, base_branch):
+                if self._local_branch_exists(repo_path, base_branch):
+                    self._git(["checkout", base_branch], cwd=repo_path)
                 else:
-                    print(f"No changes needed on branch: {branch}")
-            except GitCommandError as exc:
-                print(f"Failed on branch {branch}: {exc}")
+                    self._git(["checkout", "-b", base_branch, f"origin/{base_branch}"], cwd=repo_path)
+                try:
+                    self._git(["pull", "origin", base_branch], cwd=repo_path)
+                except GitCommandError:
+                    pass
+                self._git(["checkout", "-b", new_branch], cwd=repo_path)
+            else:
+                self._git(["checkout", "--orphan", new_branch], cwd=repo_path)
+
+        self._sync_source_to_repo(source_path=source_path, repo_path=repo_path)
+        self._git(["add", "-A"], cwd=repo_path)
+
+        status = self._git(["status", "--porcelain"], cwd=repo_path)
+        if not status.strip():
+            if should_push:
+                try:
+                    self._git(["push", "-u", "origin", new_branch], cwd=repo_path)
+                except GitCommandError:
+                    pass
+            return False
+
+        self._git(["commit", "-m", commit_message], cwd=repo_path)
+        if should_push:
+            self._git(["push", "-u", "origin", new_branch], cwd=repo_path)
+        return True
+
+    def _sync_source_to_repo(self, source_path: Path, repo_path: Path) -> None:
+        exclude_dirs = {
+            ".git",
+            "repos",
+            "__pycache__",
+            ".venv",
+            ".mypy_cache",
+            ".pytest_cache",
+        }
+
+        copied_rel_paths: set[str] = set()
+        for root, dirs, files in os.walk(source_path):
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            root_path = Path(root)
+            for filename in files:
+                if filename.endswith(".pyc"):
+                    continue
+                src_file = root_path / filename
+                rel = src_file.relative_to(source_path)
+                rel_posix = rel.as_posix()
+                copied_rel_paths.add(rel_posix)
+
+                dst_file = repo_path / rel
+                dst_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_file, dst_file)
+
+        for root, dirs, files in os.walk(repo_path):
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            root_path = Path(root)
+            for filename in files:
+                rel = (root_path / filename).relative_to(repo_path).as_posix()
+                if rel not in copied_rel_paths:
+                    (root_path / filename).unlink()
+
+        for root, dirs, _ in os.walk(repo_path, topdown=False):
+            for dirname in dirs:
+                dir_path = Path(root) / dirname
+                if dir_path.name in exclude_dirs:
+                    continue
+                if not any(dir_path.iterdir()):
+                    dir_path.rmdir()
+
+    def _branch_exists(self, repo_path: Path, branch_name: str) -> bool:
+        return self._local_branch_exists(repo_path, branch_name) or self._remote_branch_exists(
+            repo_path, branch_name
+        )
+
+    def _local_branch_exists(self, repo_path: Path, branch_name: str) -> bool:
+        try:
+            self._git(["show-ref", "--verify", f"refs/heads/{branch_name}"], cwd=repo_path)
+            return True
+        except GitCommandError:
+            return False
+
+    def _remote_branch_exists(self, repo_path: Path, branch_name: str) -> bool:
+        try:
+            self._git(["show-ref", "--verify", f"refs/remotes/origin/{branch_name}"], cwd=repo_path)
+            return True
+        except GitCommandError:
+            return False
 
     def _clone_or_fetch(self, repo_url: str, repo_path: Path) -> None:
         if repo_path.exists():
@@ -130,55 +289,6 @@ class BranchUpdateAgent:
         )
 
         return []
-
-    def _choose_branches(self, branches: list[str]) -> list[str]:
-        raw = input("Choose branches by number (comma) or type 'all': ").strip().lower()
-        if raw == "all":
-            return branches
-
-        selected: list[str] = []
-        for token in raw.split(","):
-            token = token.strip()
-            if not token.isdigit():
-                continue
-            idx = int(token)
-            if 1 <= idx <= len(branches):
-                selected.append(branches[idx - 1])
-        return sorted(set(selected))
-
-    def _update_branch(
-        self,
-        repo_path: Path,
-        branch: str,
-        rel_file_path: str,
-        find_text: str,
-        replace_text: str,
-        commit_message: str,
-        should_push: bool,
-    ) -> bool:
-        self._git(["checkout", branch], cwd=repo_path)
-        self._git(["pull", "origin", branch], cwd=repo_path)
-
-        target = repo_path / rel_file_path
-        if not target.exists():
-            raise GitCommandError(f"File not found: {rel_file_path}")
-
-        original = target.read_text(encoding="utf-8")
-        updated = original.replace(find_text, replace_text)
-        if updated == original:
-            return False
-
-        target.write_text(updated, encoding="utf-8")
-        self._git(["add", rel_file_path], cwd=repo_path)
-
-        status = self._git(["status", "--porcelain"], cwd=repo_path)
-        if not status.strip():
-            return False
-
-        self._git(["commit", "-m", commit_message], cwd=repo_path)
-        if should_push:
-            self._git(["push", "origin", branch], cwd=repo_path)
-        return True
 
     def _git(self, args: list[str], cwd: Path) -> str:
         if not cwd.exists() or not cwd.is_dir():
