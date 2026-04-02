@@ -46,7 +46,7 @@ class BranchUpdateAgent:
 
     def _push_to_main(self, repo_path: Path) -> None:
         commit_message = (
-            input("Commit message [chore: update main]: ").strip() or "chore: update main"
+            input("Commit message [chore: update main]: ").strip().strip('\'"') or "chore: update main"
         )
         self._checkout_branch(repo_path, "main")
         self._stash_and_pull(repo_path, "main")
@@ -59,12 +59,12 @@ class BranchUpdateAgent:
         print("Local repo synced with latest main.")
 
     def _push_to_named_branch(self, repo_path: Path) -> None:
-        branch_name = input("Branch name: ").strip()
+        branch_name = input("Branch name: ").strip().strip('\'"')
         if not branch_name:
             print("Branch name is required.")
             return
         commit_message = (
-            input("Commit message [feat: advanced update]: ").strip() or "feat: advanced update"
+            input("Commit message [feat: advanced update]: ").strip().strip('\'"') or "feat: advanced update"
         )
         self._checkout_branch(repo_path, branch_name)
         self._stash_and_pull(repo_path, branch_name)
@@ -79,7 +79,7 @@ class BranchUpdateAgent:
     def _pull_latest_to_local(self, repo_path: Path) -> None:
         default_branch = self._current_branch(repo_path) or "main"
         branch_name = (
-            input(f"Branch to sync [{default_branch}]: ").strip() or default_branch
+            input(f"Branch to sync [{default_branch}]: ").strip().strip('\'"') or default_branch
         )
         self._checkout_branch(repo_path, branch_name)
         self._stash_and_pull(repo_path, branch_name)
@@ -91,7 +91,9 @@ class BranchUpdateAgent:
         stash_out = self._safe_git(["stash", "push", "-u", "-m", "agent-auto-stash"], repo_path)
         stashed = "No local changes" not in stash_out
         try:
-            self._safe_git(["pull", "origin", branch_name], repo_path)
+            # Only pull if the remote branch exists
+            if self._remote_branch_exists(repo_path, branch_name):
+                self._safe_git(["pull", "origin", branch_name], repo_path)
         finally:
             if stashed:
                 try:

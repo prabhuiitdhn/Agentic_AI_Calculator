@@ -70,18 +70,11 @@ python branch_update_agent.py
 Flow:
 
 1. Enter the GitHub repo URL.
-<<<<<<< Updated upstream
-2. Choose mode:
-  - `1. Main branch`
-  - `2. Any other branch`
-  - `3. Pull latest code`
-=======
 2. Enter your local development repo path (default is current project path).
 3. Choose mode:
   - `1. Push current code to main`
   - `2. Push current code to another branch`
   - `3. Pull latest code to local repo`
->>>>>>> Stashed changes
 
 Main branch mode:
 
@@ -102,22 +95,41 @@ Pull latest code mode:
 1. Enter branch name (default is current branch).
 2. Agent checks out the branch and pulls latest from origin.
 
-Pull latest code mode:
+Notes:
 
-1. Enter branch name (default uses `main` or detected base branch).
-2. Agent checks out the branch and pulls latest from origin.
+- If the provided local path is not a git repo, the agent uses/creates a cached clone in `./repos`.
+- The agent updates `origin` URL to the repository you provide.
+- Git auth must already work on your machine for clone/pull/push.
+
+## Project Session Agent (Secure API Key Scope)
+
+Use this script to load `ANTHROPIC_API_KEY` only for the current project session.
+When the session exits, the key is removed from that process.
+
+1. Create `.env` in project root:
+
+```bash
+ANTHROPIC_API_KEY=your_real_key_here
+```
+
+2. Start a session (uses Marigold Python automatically if available):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/project_session_agent.ps1
+```
+
+3. Optional explicit Marigold command:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/project_session_agent.ps1 -StartupCommand "& 'C:/Users/uib43225/AppData/Local/anaconda3/envs/Marigold/python.exe' main.py"
+```
+
+4. Exit session by typing `exit` at `project-shell>` prompt.
 
 Notes:
 
-<<<<<<< Updated upstream
-- It clones the repository into `./repos` (or fetches if already present).
-- It creates/checks out the target branch, syncs source files to the repo tree, commits, and optionally pushes.
-- After push, the agent can also pull the latest code so local repo is synced with remote.
-=======
-- If the provided local path is not a git repo, the agent uses/creates a cached clone in `./repos`.
-- The agent updates `origin` URL to the repository you provide.
->>>>>>> Stashed changes
-- Git auth must already work on your machine for clone/pull/push.
+- `.env` is ignored by git, so the key is not pushed to GitHub.
+- If `.env` is missing, the session script exits with a clear error.
 
 ## Example Prompts
 
