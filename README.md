@@ -10,6 +10,8 @@ The app runs in local LLM routing mode:
 - Tool-based architecture
 - Prompt-to-tool routing
 - Local LLM tool calling support (Ollama)
+- Deterministic preprocessor for common math word-problem patterns
+- Validator and retry pass for suspicious LLM routing results
 - Interactive CLI loop
 - GitHub helper script for branch push/pull workflows
 
@@ -26,7 +28,9 @@ The app runs in local LLM routing mode:
 
 - main.py: CLI entry point for local model routing
 - src/calculator_agent/tools.py: tool implementations and registry
+- src/calculator_agent/math_preprocessor.py: rule-first parser for common math patterns
 - src/calculator_agent/local_llm_agent.py: local tool-calling router
+- scripts/benchmark_local_llm.py: small benchmark runner for prompt accuracy checks
 - branch_update_agent.py: GitHub push/pull helper
 
 ## Setup
@@ -50,6 +54,20 @@ python main.py
 ```
 
 If local model service is unavailable, the app shows setup instructions and exits.
+
+## Accuracy Strategy
+
+- Deterministic rules handle common patterns such as rate-over-time, remaining items, and speed-time.
+- Local LLM handles general prompt-to-tool routing.
+- A retry pass corrects suspicious first-pass decisions for common word-problem mistakes.
+
+## Benchmark
+
+Run the benchmark script to check prompt accuracy quickly:
+
+```bash
+python scripts/benchmark_local_llm.py
+```
 
 ## Commands
 
