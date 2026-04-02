@@ -9,11 +9,13 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from calculator_agent.agent import CalculatorAgent
+from calculator_agent.llm_agent import LLMCalculatorAgent, LLMNotAvailableError
 from calculator_agent.tools import CalculatorError
 
 
-def print_welcome(agent: CalculatorAgent) -> None:
+def print_welcome(agent: CalculatorAgent, mode: str) -> None:
     print("\nAgentic Calculator (from scratch)\n")
+    print(f"Parser mode: {mode}\n")
     print("Type prompts like:")
     print("  add 4 and 7")
     print("  4 + 7")
@@ -27,9 +29,16 @@ def print_welcome(agent: CalculatorAgent) -> None:
     print()
 
 
+def build_agent() -> tuple[CalculatorAgent, str]:
+    try:
+        return LLMCalculatorAgent(), "claude-tool-calling"
+    except LLMNotAvailableError:
+        return CalculatorAgent(), "regex-fallback"
+
+
 def run_cli() -> None:
-    agent = CalculatorAgent()
-    print_welcome(agent)
+    agent, mode = build_agent()
+    print_welcome(agent, mode)
 
     def run_guided_mode() -> None:
         print("\nGuided mode")
@@ -63,7 +72,7 @@ def run_cli() -> None:
             break
 
         if lowered in {"help", "tools"}:
-            print_welcome(agent)
+            print_welcome(agent, mode)
             continue
 
         if lowered == "guided":
@@ -75,6 +84,18 @@ def run_cli() -> None:
             print(f"Result: {result}\n")
         except (CalculatorError, ValueError) as exc:
             print(f"Error: {exc}\n")
+        except Exception as exc:
+            if mode != "regex-fallback":
+                print(f"[LLM unavailable at runtime, switching to regex fallback] {exc}\n")
+                agent = CalculatorAgent()
+                mode = "regex-fallback"
+                try:
+                    result = agent.run(user_input)
+                    print(f"Result: {result}\n")
+                except (CalculatorError, ValueError) as fallback_exc:
+                    print(f"Error: {fallback_exc}\n")
+            else:
+                print(f"Error: {exc}\n")
 
 
 if __name__ == "__main__":
