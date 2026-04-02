@@ -29,7 +29,7 @@ class BranchUpdateAgent:
 
         print("\nChoose mode:")
         print("  1. Push current code to main")
-        print("  2. Push current code to another branch")
+        print("  2. Push current code to another/current branch")
         print("  3. Pull latest code to local repo")
         mode = input("mode> ").strip().lower()
 
@@ -48,7 +48,7 @@ class BranchUpdateAgent:
         commit_message = (
             input("Commit message [chore: update main]: ").strip() or "chore: update main"
         )
-        self._checkout_branch(repo_path, "main")
+        self._checkout_branch_with_stash(repo_path, "main")
         self._stash_and_pull(repo_path, "main")
         if self._commit_all(repo_path, commit_message):
             self._safe_git(["push", "-u", "origin", "main"], repo_path)
@@ -59,14 +59,18 @@ class BranchUpdateAgent:
         print("Local repo synced with latest main.")
 
     def _push_to_named_branch(self, repo_path: Path) -> None:
-        branch_name = input("Branch name: ").strip()
+        default_branch = self._current_branch(repo_path) or "main"
+        branch_name = (
+            input(f"Branch name [{default_branch}]: ").strip().strip("\"'") or default_branch
+        )
         if not branch_name:
             print("Branch name is required.")
             return
         commit_message = (
-            input("Commit message [feat: advanced update]: ").strip() or "feat: advanced update"
+            input("Commit message [feat: advanced update]: ").strip().strip("\"'")
+            or "feat: advanced update"
         )
-        self._checkout_branch(repo_path, branch_name)
+        self._checkout_branch_with_stash(repo_path, branch_name)
         self._stash_and_pull(repo_path, branch_name)
         if self._commit_all(repo_path, commit_message):
             self._safe_git(["push", "-u", "origin", branch_name], repo_path)
@@ -81,17 +85,30 @@ class BranchUpdateAgent:
         branch_name = (
             input(f"Branch to sync [{default_branch}]: ").strip() or default_branch
         )
-        self._checkout_branch(repo_path, branch_name)
+        self._checkout_branch_with_stash(repo_path, branch_name)
         self._stash_and_pull(repo_path, branch_name)
         print(f"Local repo synced with latest {branch_name}.")
 
     # ---------------------------------------------------------- git helpers
 
+    def _checkout_branch_with_stash(self, repo_path: Path, branch_name: str) -> None:
+        stash_out = self._safe_git(["stash", "push", "-u", "-m", "agent-pre-checkout"], repo_path)
+        stashed = "No local changes" not in stash_out
+        try:
+            self._checkout_branch(repo_path, branch_name)
+        finally:
+            if stashed:
+                try:
+                    self._safe_git(["stash", "pop"], repo_path)
+                except GitCommandError as exc:
+                    print(f"Warning: stash pop had conflicts - resolve manually.\n  {exc}")
+
     def _stash_and_pull(self, repo_path: Path, branch_name: str) -> None:
         stash_out = self._safe_git(["stash", "push", "-u", "-m", "agent-auto-stash"], repo_path)
         stashed = "No local changes" not in stash_out
         try:
-            self._safe_git(["pull", "origin", branch_name], repo_path)
+            if self._remote_branch_exists(repo_path, branch_name):
+                self._safe_git(["pull", "origin", branch_name], repo_path)
         finally:
             if stashed:
                 try:
