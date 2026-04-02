@@ -59,7 +59,7 @@ python main.py
 
 ## GitHub Branch Update Agent
 
-You can also run a separate agent that asks for a GitHub repository and applies the same code update branch-wise.
+You can also run a separate agent that asks for a GitHub repository and uploads your full project code branch-wise.
 
 Run:
 
@@ -70,16 +70,26 @@ python branch_update_agent.py
 Flow:
 
 1. Enter the GitHub repo URL.
-2. Select one or more remote branches (or all).
-3. Provide a file path in that repo.
-4. Provide find/replace text.
-5. Provide commit message.
-6. Optionally push each updated branch.
+2. Choose mode:
+  - `1. Main branch`
+  - `2. Any other branch`
+
+Main branch mode:
+
+1. Upload current source to `main`.
+2. Commit and optionally push.
+
+Any other branch mode:
+
+1. Enter branch name.
+2. If branch exists, update it.
+3. If branch does not exist, create it from base branch and upload code.
+4. Commit and optionally push.
 
 Notes:
 
 - It clones the repository into `./repos` (or fetches if already present).
-- It checks out each selected branch, pulls latest, applies the replacement, commits, and optionally pushes.
+- It creates/checks out the target branch, syncs source files to the repo tree, commits, and optionally pushes.
 - Git auth must already work on your machine for clone/pull/push.
 
 ## Example Prompts
